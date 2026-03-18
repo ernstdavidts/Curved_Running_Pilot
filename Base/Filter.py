@@ -1,4 +1,5 @@
 from scipy.signal import butter, sosfiltfilt
+import numpy as np
 
 def butter_lowpass_filter(
     data: list[float], cutoff: float = 100 , fs: float = 1000, order: int = 4) -> list[float]:
