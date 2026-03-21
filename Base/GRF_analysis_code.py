@@ -46,9 +46,9 @@ def GRF_segm_ct(GRF_list, fs):
     segment_Fz = Fz[IC:TO]
     segment_Fy = Fy[IC:TO]
     segment_Fx = Fx[IC:TO]
-    contacttijd = (TO - IC)/fs
+    contact_time = (TO - IC)/fs
 
-    return [segment_Fx, segment_Fy, segment_Fz], contacttijd
+    return [segment_Fx, segment_Fy, segment_Fz], contact_time, IC, TO
 
 def GRF_stats(segments):
 
@@ -62,42 +62,47 @@ def GRF_stats(segments):
     }
 
 def analyze_folder_stats(folder):
-
     results = []
-    
     plates = ["FP1","FP2"]
+    folders = ["Curve", "Straight"]
 
-    for file in os.listdir(folder):
+    for condition in folders:
+        condition_path = os.path.join(folder, condition)
 
-        if not file.endswith(".mat"):
+        if not os.path.isdir(condition_path):
             continue
 
-        for plate in plates:
-            path = os.path.join(folder, file)
+        for file in os.listdir(condition_path):
+            if not file.endswith(".mat"):
+                continue
 
-            if "MN" in path:
-                GRF_list = get_GRF_data(path, plate, fs=1000)
-                segments, _ = GRF_segm_ct(GRF_list, fs=1000)
-            else:
-                GRF_list = get_GRF_data(path, plate, fs=300)
-                segments, _ = GRF_segm_ct(GRF_list, fs=300)
+            path = os.path.join(condition_path, file)
 
-            stats = GRF_stats(segments)
-
+            participant = "02" if "MN" in path else "01"
+            fs = 1000 if participant == "02" else 300
+            
             if "55" in file:
-                stats["shoe"] = 55
+                shoe = 55
             elif "45" in file:
-                stats["shoe"] = 45
+                shoe = 45
             else:
-                stats["shoe"] = 25
+                shoe = 25
+            
+            for plate in plates:
 
-            if "MN" in file:
-                stats["Participant"] = "02"
-            else:
-                stats["Participant"] = "01"
-            stats["file"] = file
-            stats["plate"] = plate
-            results.append(stats)
+                condition_name = condition.lower()
+                for plate in plates:
+                    GRF_list = get_GRF_data(path, plate, fs=fs)
+                    segments, _,_,_ = GRF_segm_ct(GRF_list, fs=fs)
+                    stats = GRF_stats(segments)
+
+                    stats["participant"] = participant
+                    stats["shoe"] = shoe
+                    stats["condition"] = condition_name
+                    stats["file"] = file
+                    stats["plate"] = plate
+
+                    results.append(stats)
 
     return pd.DataFrame(results)
 
@@ -105,36 +110,51 @@ def analyze_folder_stats(folder):
 def analyze_folder_segm(folder):
     results = []
     plates = ["FP1","FP2"]
+    folders = ["Curve", "Straight"]
 
-    for file in os.listdir(folder):
-        if not file.endswith(".mat"):
+    for condition in folders:
+        condition_path = os.path.join(folder, condition)
+
+        if not os.path.isdir(condition_path):
             continue
 
-        path = os.path.join(folder, file)
-        
-        participant = "02" if "MN" in path else "01"
-        fs = 1000 if participant == "02" else 300
-        
-        if "55" in file:
-            shoe = "55"
-        elif "45" in file:
-            shoe = "45"
-        else:
-            shoe = "25"
-        
-        for plate in plates:
-            GRF_list = get_GRF_data(path, plate)
-            segments, contact_time = GRF_segm_ct(GRF_list, fs=fs)
+        for file in os.listdir(condition_path):
+            if not file.endswith(".mat"):
+                continue
             
-            results.append({
-                "Participant": participant,
-                "shoe": shoe,
-                "contact time": contact_time,
-                "Fx": segments[0],
-                "Fy": segments[1],
-                "Fz": segments[2],
-                "plate": plate
-            })
+            parts = file.split("_")
+            trial = parts[-1][0]
+            path = os.path.join(condition_path, file)
+            condition_name = condition.lower()
+                
+            participant = "02" if "MN" in path else "01"
+            fs = 1000 if participant == "02" else 300
+            
+            if "55" in file:
+                shoe = "55"
+            elif "45" in file:
+                shoe = "45"
+            else:
+                shoe = "25"
+            
+            for plate in plates:
+                GRF_list = get_GRF_data(path, plate, fs=fs)
+                segments, contact_time, IC, TO = GRF_segm_ct(GRF_list, fs=fs)
+                
+                results.append({
+                    "participant": participant,
+                    "shoe": shoe,
+                    "contact time": contact_time,
+                    "IC": IC,
+                    "TO":TO,
+                    "fs":fs,
+                    "Fx": segments[0],
+                    "Fy": segments[1],
+                    "Fz": segments[2],
+                    "trial": trial,
+                    "plate": plate,
+                    "condition": condition_name
+                })
             
     return pd.DataFrame(results)
 
@@ -144,13 +164,14 @@ def segm_plot(df: pd.DataFrame,
             participant: str=None, 
             shoe: str=None, 
             plate: str=None, 
-            type: str=None
+            type: str=None,
+            y_plot: str=None
     ):
     
     #Step 1: filter dataframe (if conditions are given)
     # Always filter your DataFrame first, then process it !
     if participant is not None:
-        df = df[df["Participant"]== participant]
+        df = df[df["participant"] == participant]
 
     if shoe is not None:
         df = df[df["shoe"]== shoe]
@@ -161,11 +182,26 @@ def segm_plot(df: pd.DataFrame,
     # Step 2: plot
     plt.figure()
     
-    if type == "normalised":
-        for _, row in df.iterrows():    
-            x_orig = np.linspace(0, 1, len(row[force]))
+    if type == "interpolate":
+        for _, row in df.iterrows():
+            if y_plot == "normalised":
+                if row["participant"] == "02":
+                    y = np.asarray(row[force]/(72*9.81))
+                elif row["participant"] == "01":
+                    y = np.asarray(row[force]/(81*9.81))
+            else: 
+                y = np.asarray(row[force])
+
+            if len(y) < 10:
+                print(
+                    f"Skipped trial: Participant={row['participant']}, "
+                    f"shoe={row['shoe']}, plate={row['plate']}, n={len(y)}"
+                )
+                continue
+
+            x_orig = np.linspace(0, 1, len(y))
             x_new = np.linspace(0, 1, 100)
-            f = interpolate.interp1d(x_orig, row[force])
+            f = interpolate.interp1d(x_orig, y)
             normalized_segment = f(x_new)
             
             plt.plot(normalized_segment)
@@ -174,11 +210,79 @@ def segm_plot(df: pd.DataFrame,
             plt.ylabel(f"{force} (N)")
     else:
         for _, row in df.iterrows():
-            x = np.linspace(0, row["contact time"], len(row[force]))
-            plt.plot(x, row[force])
+            if y_plot == "normalised":
+                if row["participant"] == "02":
+                    y = np.asarray(row[force]/(72*9.81))
+                elif row["participant"] == "01":
+                    y = np.asarray(row[force]/(81*9.81))
+            else: 
+                y = np.asarray(row[force])
+
+            x = np.linspace(0, row["contact time"], len(y))
+            plt.plot(x, y)
             plt.xlabel("contact time")
             plt.ylabel(f"{force} (N)")
             plt.title(f"{force} per contact time")
     
     plt.show()
+
+def plot_stats(
+    df: pd.DataFrame, 
+    force: str ="Fz", 
+    comparison: str ="shoe",
+    participant: str = None,
+    shoe: str = None,
+    plate: str = None,
+    condition: str = None, 
+    y_plot: str =None
+    ):
     
+    plt.figure()
+
+    if participant is not None:
+        df = df[df["participant"] == participant]
+
+    if shoe is not None:
+        df = df[df["shoe"] == shoe]
+
+    if plate is not None:
+        df = df[df["plate"] == plate]
+
+    if condition is not None:
+        df = df[df["condition"] == condition]
+
+    for comp, group_df in df.groupby(comparison):
+        normalized_curves = []
+
+        for _, row in group_df.iterrows():    
+            if y_plot == "normalised":
+                if row["participant"] == "02":
+                    y = np.asarray(row[force]/(72*9.81))
+                elif row["participant"] == "01":
+                    y = np.asarray(row[force]/(81*9.81))
+            else: 
+                y = np.asarray(row[force])
+
+            if len(y) < 10:
+                print(
+                    f"Skipped trial: Participant={row['participant']}, "
+                    f"shoe={row['shoe']}, plate={row['plate']}, n={len(y)}"
+                )
+                continue
+
+            x_orig = np.linspace(0, 1, len(y))
+            x_new = np.linspace(0, 1, 100)
+            f = interpolate.interp1d(x_orig, y)
+            normalized_y = f(x_new)
+            
+            normalized_curves.append(normalized_y)
+        
+        mean_curve = np.mean(normalized_curves, axis=0)
+
+        plt.plot(mean_curve, label=f"{comp}")
+
+    plt.title(f"normalised mean {force} per {comparison}")
+    plt.xlabel("% of contact time")
+    plt.ylabel(f"Mean {force} curve (N)")
+    plt.legend()
+    plt.show()
