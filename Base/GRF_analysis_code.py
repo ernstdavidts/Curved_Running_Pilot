@@ -32,7 +32,6 @@ def get_GRF_data(mat_path, force_plate, fs=1000):
     Fy = butter_lowpass_filter(Fy, cutoff= 80, fs=fs, order= 4)
     Fz = butter_lowpass_filter(Fz, cutoff= 80, fs=fs, order= 4)
     
-    # Also for the other forces?
     Fz[Fz < 20] = 0
     return [Fx, Fy, Fz]
 
@@ -93,7 +92,7 @@ def analyze_folder_stats(folder):
                 condition_name = condition.lower()
                 for plate in plates:
                     GRF_list = get_GRF_data(path, plate, fs=fs)
-                    segments, _,_,_ = GRF_segm_ct(GRF_list, fs=fs)
+                    segments, _, IC,TO = GRF_segm_ct(GRF_list, fs=fs)
                     stats = GRF_stats(segments)
 
                     stats["participant"] = participant
@@ -101,6 +100,8 @@ def analyze_folder_stats(folder):
                     stats["condition"] = condition_name
                     stats["file"] = file
                     stats["plate"] = plate
+                    stats["IC_time"] = (IC/fs)
+                    stats["TO_time"] = (TO/fs)
 
                     results.append(stats)
 
@@ -145,9 +146,8 @@ def analyze_folder_segm(folder):
                     "participant": participant,
                     "shoe": shoe,
                     "contact time": contact_time,
-                    "IC": IC,
-                    "TO":TO,
-                    "fs":fs,
+                    "IC": IC/fs,
+                    "TO": TO/fs,
                     "Fx": segments[0],
                     "Fy": segments[1],
                     "Fz": segments[2],
@@ -238,6 +238,7 @@ def plot_stats(
     ):
     
     plt.figure()
+    x_new = np.linspace(0, 1, 100)
 
     if participant is not None:
         df = df[df["participant"] == participant]
@@ -253,7 +254,13 @@ def plot_stats(
 
     for comp, group_df in df.groupby(comparison):
         normalized_curves = []
-
+        if comparison is None:
+            comp="all"
+        elif isinstance(comparison, str):
+            comp = group_df[comparison].iloc[0]
+        else:
+            comp = " | ".join(str(group_df[col].iloc[0]) for col in comparison)
+        
         for _, row in group_df.iterrows():    
             if y_plot == "normalised":
                 if row["participant"] == "02":
@@ -271,17 +278,29 @@ def plot_stats(
                 continue
 
             x_orig = np.linspace(0, 1, len(y))
-            x_new = np.linspace(0, 1, 100)
             f = interpolate.interp1d(x_orig, y)
             normalized_y = f(x_new)
             
             normalized_curves.append(normalized_y)
-        
-        mean_curve = np.mean(normalized_curves, axis=0)
 
-        plt.plot(mean_curve, label=f"{comp}")
+        if not normalized_curves:
+            continue
 
-    plt.title(f"normalised mean {force} per {comparison}")
+        curves_array = np.vstack(normalized_curves)
+        mean_curve = np.mean(curves_array, axis=0)
+        std_curve = np.std(curves_array, axis=0)
+
+        line, = plt.plot(x_new * 100, mean_curve, label=f"{comp}")
+        plt.fill_between(
+            x_new * 100,
+            mean_curve - std_curve,
+            mean_curve + std_curve,
+            color=line.get_color(),
+            alpha=0.2,
+            linewidth=0
+        )
+
+    plt.title(f"normalised mean {force}")
     plt.xlabel("% of contact time")
     plt.ylabel(f"Mean {force} curve (N)")
     plt.legend()

@@ -1,9 +1,3 @@
-#### TO DO below: 
-
-# - fix with Amelie that the names are the same of all the files: easier! 
-# - How to control for noise ==> curve_4 => noise after sec 6 (i think) -> how to fix it?
-# - link segment time with angle time !! -> fix data qtm: naming + conversion to opensim: GRF included: easier to calculate contact time
-
 from scipy.io import loadmat
 import numpy as np
 import pandas as pd
@@ -40,10 +34,10 @@ def analyze_folder_OS(folder):
         
         trial_dict = get_angle_data(path)
 
-        for trial_name, angle_df in trial_dict.items():
+        for trial_name, os_df in trial_dict.items():
             parts = trial_name.split("_")
 
-            for col in angle_df.columns:
+            for col in os_df.columns:
                 if col == "time":
                     continue
                 
@@ -60,8 +54,8 @@ def analyze_folder_OS(folder):
                     "shoe": str(parts[1]),
                     "condition": parts[2],
                     "trial": parts[3],
-                    "time": angle_df["time"],
-                    "value": angle_df[col],
+                    "time": os_df["time"],
+                    "value": os_df[col],
                     "side": side
                     })
                 elif len(parts[0]) == 3:
@@ -70,8 +64,8 @@ def analyze_folder_OS(folder):
                     "shoe": str(parts[0][1:]),
                     "condition": parts[1],
                     "trial": parts[2][-1],
-                    "time": angle_df["time"],
-                    "value": angle_df[col],
+                    "time": os_df["time"],
+                    "value": os_df[col],
                     "side": side
                     })
                 else: 
@@ -80,8 +74,8 @@ def analyze_folder_OS(folder):
                     "shoe": "55",
                     "condition": parts[0],
                     "trial": parts[1][-1],
-                    "time": angle_df["time"],
-                    "value": angle_df[col],
+                    "time": os_df["time"],
+                    "value": os_df[col],
                     "side": side
                     })
 
@@ -95,6 +89,22 @@ def analyze_folder_OS(folder):
             
     return all_data
 
+def merge_left_contacts(os_df, df_segm):
+    os_df["trial"] = os_df["trial"].astype(str)
+    os_df["shoe"] = os_df["shoe"].astype(str)
+
+    merged = os_df.merge(
+        df_segm[["participant", "shoe", "condition", "trial", "IC", "TO"]],
+        on=["participant", "shoe", "condition", "trial"],
+        how="left")
+
+    stance = merged[
+        (merged["time"] >= merged["IC"]) &
+        (merged["time"] <= merged["TO"])
+    ].copy()
+
+    return stance
+
 def angle_plot(dict: dict, 
             joint: str = None, 
             participant: str=None, 
@@ -106,7 +116,7 @@ def angle_plot(dict: dict,
     ):
     
     if side is None:
-        if joint == "ankle" or joint == "knee" or joint == "hip":
+        if joint == "ankle_angle" or joint == "knee_angle" or "hip" in joint:
             raise ValueError("No side of the joint was given")
         else:
             df = dict[joint] 
@@ -128,10 +138,10 @@ def angle_plot(dict: dict,
 
     groups = df.groupby(["participant", "shoe", "trial", "condition"])
     normalized_curves = {}
+    x_new = np.linspace(0, 1, 100)
         
     for _, group in groups:
         group = group.sort_values('time')
-
         y = group["value"].to_numpy()
 
         if len(y) < 10:
@@ -141,26 +151,39 @@ def angle_plot(dict: dict,
                 continue
 
         x_orig = np.linspace(0, 1, len(group["time"]))
-        x_new = np.linspace(0, 1, 100)
-        
         f = interpolate.interp1d(x_orig, y, kind="linear")
         normalized_y = f(x_new)
 
         if comparison is None:
             label="all"
-        else:
+        elif isinstance(comparison, str):
             label = group[comparison].iloc[0]
+        else:
+            label = " | ".join(str(group[col].iloc[0]) for col in comparison)
 
         if label not in normalized_curves:
             normalized_curves[label] = []  
         
         normalized_curves[label].append(normalized_y)
 
-    for label, curves in normalized_curves.items():
-        mean_curve = np.mean(curves, axis=0)
-        plt.plot(mean_curve, label=str(label))
+    plt.figure()
 
-    plt.xlabel("% contact time ")
+    for label, curves in normalized_curves.items():
+        curves_array = np.vstack(curves)
+        mean_curve = np.mean(curves_array, axis=0)
+        std_curve = np.std(curves_array, axis=0)
+
+        line, = plt.plot(x_new * 100, mean_curve, label=label)
+        plt.fill_between(
+            x_new * 100,
+            mean_curve - std_curve,
+            mean_curve + std_curve,
+            color=line.get_color(),
+            alpha=0.2,
+            linewidth=0
+        )
+
+    plt.xlabel("% contact time")
     plt.ylabel("angle (°)")
     plt.title(joint)
     plt.legend()
