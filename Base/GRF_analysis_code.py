@@ -32,7 +32,7 @@ def get_GRF_data(mat_path, force_plate, fs=1000):
     Fy = butter_lowpass_filter(Fy, cutoff= 80, fs=fs, order= 4)
     Fz = butter_lowpass_filter(Fz, cutoff= 80, fs=fs, order= 4)
     
-    Fz[Fz < 20] = 0
+    Fz[Fz < 35] = 0
     return [Fx, Fy, Fz]
 
 def GRF_segm_ct(GRF_list, fs):
@@ -162,8 +162,10 @@ def analyze_folder_segm(folder):
 def segm_plot(df: pd.DataFrame, 
             force: str = "Fz", 
             participant: str=None, 
+            condition:str=None,
             shoe: str=None, 
             plate: str=None, 
+            trial: str =None,
             type: str=None,
             y_plot: str=None
     ):
@@ -179,15 +181,25 @@ def segm_plot(df: pd.DataFrame,
     if plate is not None:
         df = df[df["plate"] == plate]
 
+    if condition is not None:
+        df = df[df["condition"] == condition]
+    
+    if trial is not None:
+        df = df[df["trial"] == trial]
+
     # Step 2: plot
     plt.figure()
     
     if type == "interpolate":
         for _, row in df.iterrows():
+            if row[force][0] > 1000:
+                        print(f" trial {row["trial"]} deleted")
+                        continue
             if y_plot == "normalised":
                 if row["participant"] == "02":
                     y = np.asarray(row[force]/(72*9.81))
                 elif row["participant"] == "01":
+                    
                     y = np.asarray(row[force]/(81*9.81))
             else: 
                 y = np.asarray(row[force])
@@ -210,6 +222,9 @@ def segm_plot(df: pd.DataFrame,
             plt.ylabel(f"{force} (N)")
     else:
         for _, row in df.iterrows():
+            if row[force][0] > 1000:
+                        print(f" trial {row["trial"]} deleted")
+                        continue
             if y_plot == "normalised":
                 if row["participant"] == "02":
                     y = np.asarray(row[force]/(72*9.81))
@@ -262,6 +277,9 @@ def plot_stats(
             comp = " | ".join(str(group_df[col].iloc[0]) for col in comparison)
         
         for _, row in group_df.iterrows():    
+            if row[force][0] > 1000:
+                        print(f" trial {row["trial"]} deleted")
+                        continue
             if y_plot == "normalised":
                 if row["participant"] == "02":
                     y = np.asarray(row[force]/(72*9.81))

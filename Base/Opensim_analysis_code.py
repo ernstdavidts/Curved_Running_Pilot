@@ -15,6 +15,7 @@ def get_angle_data(mat_path, angle_path= "../../files/angles_with_labels.mat"):
     data_labels = loadmat(angle_path)
     raw_labels = data_labels["angle_labels"]
     labels = [str(x[0]) for x in raw_labels[0]]
+    print(labels)
 
     trial_dict = {}
 
