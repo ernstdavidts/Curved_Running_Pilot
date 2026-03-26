@@ -6,22 +6,24 @@ import os
 from scipy import interpolate
 print(os.getcwd())
 
-def get_angle_data(mat_path, angle_path= "../../files/angles_with_labels.mat"):
-    #load data
+def get_angle_data(mat_path):
+    # load data and labels directly from the OpenSim python .mat file
     data = loadmat(mat_path)
+    labels = data["labels"][0, 0][0][0][0][0][0]
     trial_angle = data["ANGLES_TABLE"][0, 0]
-    
-    # load angle labels
-    data_labels = loadmat(angle_path)
-    raw_labels = data_labels["angle_labels"]
-    labels = [str(x[0]) for x in raw_labels[0]]
-    print(labels)
 
     trial_dict = {}
 
     for name in trial_angle.dtype.names:
-            trial_dict[name[:-4]] = pd.DataFrame(trial_angle[name], columns=labels)
-    
+        values = trial_angle[name]
+
+        if len(labels) == values.shape[1]:
+            columns = [lab[0] if isinstance(lab, np.ndarray) else lab for lab in labels]
+        else:
+            columns = [f"col_{i}" for i in range(values.shape[1])]
+
+        trial_dict[name[:-4]] = pd.DataFrame(values, columns=columns)
+
     return trial_dict
 
 def analyze_folder_OS(folder):
