@@ -6,23 +6,39 @@ import os
 from scipy import interpolate
 print(os.getcwd())
 
-def get_angle_data(mat_path):
+def get_mat_data(mat_path, variable="angles"):
     # load data and labels directly from the OpenSim python .mat file
-    data = loadmat(mat_path)
-    labels = data["labels"][0, 0][0][0][0][0][0]
-    trial_angle = data["ANGLES_TABLE"][0, 0]
+    data = loadmat(mat_path, 
+        squeeze_me=True,
+        struct_as_record=False)
+    
+    if variable == "angles":
+        # get labels first
+        trial_names = data["labels"].ANGLES_TABLE
+        first_trial = trial_names._fieldnames[0]
+        labels = getattr(trial_names, first_trial)
+        
+        # get values
+        trial_data = data["ANGLES_TABLE"]
+    
+    elif variable == "forces":
+        trial_names = data["labels"].GRF_TABLE
+        first_trial = trial_names._fieldnames[0]
+        labels = getattr(trial_names, first_trial)
+        trial_data = data["GRF_TABLE"]
 
     trial_dict = {}
 
-    for name in trial_angle.dtype.names:
-        values = trial_angle[name]
+    for i in range(len(trial_data._fieldnames)):
+        trial = trial_data._fieldnames[i]
+        values = getattr(trial_data, trial)
 
         if len(labels) == values.shape[1]:
             columns = [lab[0] if isinstance(lab, np.ndarray) else lab for lab in labels]
         else:
-            columns = [f"col_{i}" for i in range(values.shape[1])]
+            raise ValueError("number of labels do not equal to number of colums")
 
-        trial_dict[name[:-4]] = pd.DataFrame(values, columns=columns)
+        trial_dict[trial[:-4]] = pd.DataFrame(values, columns=columns)
 
     return trial_dict
 
@@ -35,7 +51,7 @@ def analyze_folder_OS(folder):
 
         path = os.path.join(folder, file)
         
-        trial_dict = get_angle_data(path)
+        trial_dict = get_mat_data(path, variable="angles")
 
         for trial_name, os_df in trial_dict.items():
             parts = trial_name.split("_")
@@ -194,7 +210,7 @@ def angle_plot(dict: dict,
     plt.show()
 
 def stat_angle(joint, stat="mean", trial="Curve_1", specification="Rotation"):
-    result = get_angle_data(joint, trial, specification)
+    result = get_mat_data(joint)
 
     func = getattr(np, stat)
     
